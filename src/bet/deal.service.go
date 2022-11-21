@@ -12,10 +12,10 @@ import (
 
 var (
 	ErrNotAbleChangeDealStatus error = errors.New("not-able-change-deal-status")
+	ErrHighlightDealNotFound   error = errors.New("no-highlight-deal")
 )
 
 func (s *BetService) getDealCollection() *mongo.Collection {
-	log.Print(s.database)
 	return s.client.Database(s.database).Collection("deal")
 }
 
@@ -125,4 +125,27 @@ func checkDealOptionID(deal Deal, optionID string) error {
 		}
 	}
 	return ErrInvalidDealOption
+}
+
+func (s *BetService) GetHighlightDeal() (*Deal, error) {
+	var result = s.client.Database(s.database).Collection("highligh-deal").FindOne(s.ctx, bson.D{{
+		Key: "status", Value: "ACTIVE",
+	}})
+
+	if result == nil {
+		return nil, ErrHighlightDealNotFound
+	}
+
+	type HighlightDeal struct {
+		DealID primitive.ObjectID `bson:"dealId"`
+	}
+
+	var hdeal HighlightDeal
+	var err = result.Decode(&hdeal)
+	if err != nil {
+		return nil, err
+	}
+	log.Print(hdeal.DealID)
+
+	return s.GetDeal(hdeal.DealID.Hex())
 }

@@ -97,6 +97,7 @@ func (s *BetService) PlaceBet(dealId string, dealOptionId string, amount int, cr
 	}
 
 	var bet = Bet{
+		ID:           primitive.NewObjectID(),
 		DealId:       dealObjectId,
 		DealOptionId: dealOptionObjectId,
 		Amount:       amount,
@@ -104,6 +105,8 @@ func (s *BetService) PlaceBet(dealId string, dealOptionId string, amount int, cr
 		CreatedAt:    time.Now(),
 		CreatedBy:    createdBy,
 	}
+
+	log.Printf("%v", bet)
 
 	var _, insertErr = s.getBetCollection().InsertOne(s.ctx, bet)
 	return insertErr
@@ -177,10 +180,13 @@ func (s *BetService) GetBets(dealId string) ([]Bet, error) {
 		return nil, err
 	}
 
+	options := options.Find()
+	options.SetSort(bson.D{{Key: "createdAt", Value: -1}})
+
 	var result, findErr = s.getBetCollection().Find(s.ctx, bson.D{{
-		Key:   "dealId",
+		Key:   "dealID",
 		Value: dealObjectId,
-	}})
+	}}, options)
 	if findErr != nil {
 		return nil, findErr
 	}

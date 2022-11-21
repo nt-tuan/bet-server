@@ -11,6 +11,9 @@ func (s *Server) responseError(c *gin.Context, err error) {
 }
 
 func (s *Server) getUser(c *gin.Context) string {
-	var user, _ = c.Get("user")
+	var user, ok = c.Get("user")
+	if !ok {
+		return "unknown"
+	}
 	return user.(string)
 }

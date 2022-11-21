@@ -1,25 +1,20 @@
 package server
 
 import (
+	"bet-server/src/auth"
 	"bet-server/src/bet"
-	"crypto/rsa"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strings"
-	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/joho/godotenv"
-	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
 type Server struct {
-	betService *bet.BetService
-	secret     string
-	jwtIssuer  string
+	betService  *bet.BetService
+	authService *auth.AuthService
 }
 
 func NewServer() Server {
@@ -30,82 +25,41 @@ func NewServer() Server {
 	var uri = os.Getenv("MONGO_URI")
 	var database = os.Getenv("MONGO_DATABASE")
 	var betService = bet.NewBetService(uri, database)
+	var authService = auth.NewAuthServive("https://login.microsoftonline.com/b035d9fd-a388-48f2-9abf-cea8457262ce/v2.0", os.Getenv("JWT_SECRET"))
 
 	return Server{
-		betService: &betService,
-		secret:     os.Getenv("SECRET"),
-		jwtIssuer:  os.Getenv("JWT_ISSUER"),
+		betService:  &betService,
+		authService: &authService,
 	}
 }
 
 // AuthRequired is a simple middleware to check the session
 func (s *Server) AuthRequired(c *gin.Context) {
-	var bearerToken = c.Request.Header.Get("Authorization")
-	keySet, err := jwk.Fetch(c.Request.Context(), "https://login.microsoftonline.com/common/discovery/v2.0/keys")
-
-	var _, token, found = strings.Cut(bearerToken, "Bearer ")
-	println("myToken: " + token)
-	if !found {
-		c.AbortWithStatus(401)
-		return
-	}
-
-	parsedtoken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-		// Don't forget to validate the alg is what you expect:
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
-		}
-
-		kid, ok := token.Header["kid"].(string)
-		if !ok {
-			return nil, fmt.Errorf("kid header not found")
-		}
-
-		keys, ok := keySet.LookupKeyID(kid)
-		if !ok {
-			return nil, fmt.Errorf("key %v not found", kid)
-		}
-		log.Printf("publickey ")
-		publickey := &rsa.PublicKey{}
-		err = keys.Raw(publickey)
-		if err != nil {
-
-			return nil, fmt.Errorf("could not parse pubkey")
-		}
-		log.Printf("publickey %v", publickey)
-
-		return publickey, nil
-	})
-
+	token := c.Request.Header.Get("Authorization")
+	username, err := s.authService.ValidateAccessToken(token)
 	if err != nil {
-		println("parese error")
-		println(err.Error())
 		c.AbortWithStatus(401)
 		return
 	}
-
-	if claims, ok := parsedtoken.Claims.(jwt.MapClaims); ok && parsedtoken.Valid {
-		exp := claims["exp"].(int64)
-		now := time.Now().UnixMilli()
-		if now > exp {
-			c.AbortWithStatus(401)
-			return
-		}
-
-		if claims["iss"] != s.jwtIssuer {
-			c.AbortWithStatus(401)
-			return
-		}
-
-		c.Set("user", claims["unique_name"])
-		c.Next()
-	}
-	c.Status(401)
-	return
+	c.Set("user", username)
 }
 
 func (s *Server) Run() {
 	r := gin.Default()
+
+	config := cors.DefaultConfig()
+	config.AllowAllOrigins = true
+	config.AllowCredentials = true
+	config.AllowHeaders = []string{"Authorization"}
+
+	r.Use(cors.New(config))
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+		})
+	})
+	r.POST("/login", s.login)
 
 	private := r.Group("/")
 	private.Use(s.AuthRequired)
@@ -118,12 +72,8 @@ func (s *Server) Run() {
 
 		private.GET("/deal/:id/bet", s.getBets)
 		private.POST("/deal/:id/bet", s.placeBet)
+		private.GET("/highlight-deal", s.getHighlightDeal)
 	}
 
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
-		})
-	})
 	r.Run()
 }

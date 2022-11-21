@@ -96,3 +96,13 @@ func (s *Server) cancelDeal(c *gin.Context) {
 
 	c.Status(http.StatusOK)
 }
+
+func (s *Server) getHighlightDeal(c *gin.Context) {
+	var deal, err = s.betService.GetHighlightDeal()
+	if err != nil {
+		s.responseError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, deal)
+}
